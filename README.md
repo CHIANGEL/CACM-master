@@ -9,13 +9,15 @@ This is a fork from [xuanyuan14/CACM-master](https://github.com/xuanyuan14/CACM-
 
 In my repository, I make several modifications to the source code, compared to [xuanyuan14/CACM-master](https://github.com/xuanyuan14/CACM-master):
 
-1. My code is suitable for python 3.7 instead of 2.7
-2. I provide data pre-processing code for TianGong-ST
+- My code is suitable for python 3.7 instead of 2.7
+- I provide data pre-processing code for TianGong-ST
     - [TianGong-ST-CACM.py](TianGong-ST-CACM.py)
-3. Some input data formats are slightly modified
+- Some input data formats are slightly modified
     - Use loading functions in ```utils.py``` instead of ```json.loads```
     - Put all files in ```./data```. ```data/graph``` and ```data/dict``` are removed
-4. I provide evaluation codes on log likelihood, perplexity for click prediction and NDCG@k for ranking performance in [model.py](model.py)
+- I provide evaluation codes on log likelihood, perplexity for click prediction and NDCG@k for ranking performance in [model.py](model.py)
+
+**UPDATE**: This repo has heen merged into the master repo [xuanyuan14/CACM-master](https://github.com/xuanyuan14/CACM-master). You check the PR version at pr_version branch in this repo. Enjoy and have fun!
 
 ### Requirements
 
