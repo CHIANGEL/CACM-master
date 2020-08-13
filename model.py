@@ -160,13 +160,9 @@ class Model(object):
                 if evaluate and self.global_step % self.eval_freq == 0:
                     if data.dev_set is not None or data.test_set is not None:
                         dev_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
-                        dev_loss, dev_LL, dev_perplexity, dev_perplexity_at_rank = self.evaluate(dev_batches, data, result_dir=self.args.result_dir,
-                                                                                    result_prefix='train_dev.predicted.{}.{}'.format(self.args.algo,
-                                                                                                                                    self.global_step))
+                        dev_loss, dev_LL, dev_perplexity, dev_perplexity_at_rank = self.evaluate(dev_batches, data)
                         test_batches = data.gen_mini_batches('test', batch_size, shuffle=False)
-                        test_loss, test_LL, test_perplexity, test_perplexity_at_rank = self.evaluate(test_batches, data, result_dir=self.args.result_dir,
-                                                                                    result_prefix='train_test.predicted.{}.{}'.format(self.args.algo,
-                                                                                                                                    self.global_step))
+                        test_loss, test_LL, test_perplexity, test_perplexity_at_rank = self.evaluate(test_batches, data)
                         self.writer.add_scalar("dev/loss", dev_loss, self.global_step)
                         self.writer.add_scalar("dev/log likelihood", dev_LL, self.global_step)
                         self.writer.add_scalar("dev/perplexity", dev_perplexity, self.global_step)
@@ -176,8 +172,7 @@ class Model(object):
 
                         label_batches = data.gen_mini_batches('label', batch_size, shuffle=False)
                         trunc_levels = [1, 3, 5, 10]
-                        ndcgs_version1, ndcgs_version2 = self.ndcg(label_batches, data, result_dir=self.args.result_dir,
-                                                                    result_prefix='train.rank.{}.{}'.format(self.args.algo, self.global_step))
+                        ndcgs_version1, ndcgs_version2 = self.ndcg(label_batches, data)
                         for trunc_level in trunc_levels:
                             ndcg_version1, ndcg_version2 = ndcgs_version1[trunc_level], ndcgs_version2[trunc_level]
                             self.writer.add_scalar("ndcg_version1/{}".format(trunc_level), ndcg_version1, self.global_step)
