@@ -138,6 +138,7 @@ def test(args):
     for trunc_level in trunc_levels:
         ndcg_version1, ndcg_version2 = ndcgs_version1[trunc_level], ndcgs_version2[trunc_level]
         logger.info("NDCG@{}: {}, {}".format(trunc_level, ndcg_version1, ndcg_version2))
+    logger.info("load model: 【{}】".format(args.load_model))
     logger.info('Done with model testing!')
 
 def train(args):
@@ -188,8 +189,6 @@ def run():
         train(args)
     if args.test:
         test(args)
-    if args.rank:
-        rank(args)
     logger.info('run done.')
 
 
