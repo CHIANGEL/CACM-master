@@ -19,6 +19,8 @@ def parse_args():
                         help='train the model')
     parser.add_argument('--test', action='store_true',
                         help='test on test set')
+    parser.add_argument('--generate_synthetic_dataset', action='store_true',
+                        help='generate synthetic dataset for reverse ppl')
     parser.add_argument('--gpu', type=str, default='',
                         help='specify gpu device')
 
@@ -116,6 +118,7 @@ def test(args):
     logger.info('Checking the data files...')
     for data_path in args.train_dirs + args.dev_dirs + args.test_dirs + args.label_dirs:
         assert os.path.exists(data_path), '{} file does not exist.'.format(data_path)
+    assert len(args.test_dirs) > 0, 'No test files are provided.'
     dataset = Dataset(args, train_dirs=args.train_dirs, dev_dirs=args.dev_dirs, test_dirs=args.test_dirs, label_dirs=args.label_dirs)
     logger.info('Initialize the model...')
     model = Model(args, len(dataset.qid_nid), len(dataset.uid_nid), len(dataset.vtype_vid))
@@ -157,6 +160,39 @@ def train(args):
     model.train(dataset)
     logger.info('Done with model training!')
 
+def generate_synthetic_dataset(args):
+    """
+    generate synthetic dataset for reverse ppl
+    """
+    logger = logging.getLogger("CACM")
+    logger.info('Checking the data files...')
+    for data_path in args.train_dirs + args.dev_dirs + args.test_dirs:
+        assert os.path.exists(data_path), '{} file does not exist.'.format(data_path)
+    assert len(args.test_dirs) > 0, 'No test files are provided.'
+    dataset = Dataset(args, train_dirs=args.train_dirs, dev_dirs=args.dev_dirs, test_dirs=args.test_dirs)
+    logger.info('Initialize the model...')
+    model = Model(args, len(dataset.qid_nid), len(dataset.uid_nid), len(dataset.vtype_vid))
+    logger.info('model.global_step: {}'.format(model.global_step))
+    assert args.load_model > -1
+    logger.info('Restoring the model...')
+    model.load_model(model_dir=args.model_dir, model_prefix=args.algo, global_step=args.load_model)
+
+    synthetic_types = ['deterministic', 'stochastic']
+    shuffle_splits = [None, [1, 11], [1, 6, 11]]
+    amplifications = [1, 7]
+    for synthetic_type in synthetic_types:
+        for shuffle_split in shuffle_splits:
+            for amplification in amplifications:
+                # synthetic_type = 'stochastic'
+                # shuffle_split = None
+                # amplification = 1
+                file_path = os.path.join(args.model_dir, '..', 'synthetic')
+                model.generate_synthetic_dataset('test', dataset, file_path, 
+                                                'synthetic_{}_{}_{}.txt'.format(synthetic_type[0].upper(), str(shuffle_split), amplification), 
+                                                synthetic_type=synthetic_type, shuffle_split=shuffle_split, amplification=amplification)
+                exit(0)
+    logger.info('Done with click sequence generation.')
+
 def run():
     args = parse_args()
     assert args.batch_size % args.gpu_num == 0
@@ -189,6 +225,8 @@ def run():
         train(args)
     if args.test:
         test(args)
+    if args.generate_synthetic_dataset:
+        generate_synthetic_dataset(args)
     logger.info('run done.')
 
 

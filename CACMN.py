@@ -194,6 +194,15 @@ class CACMN(nn.Module):
                                                                             this_query_context[:, :, 3],
                                                                             this_query_context[:, :, 1], this_hidden)
                 batch_examination_output.append(this_examination_output)
+            rest_doc_num = batch_examination.size()[0] % 10
+            if rest_doc_num > 0:
+                this_query_context = batch_examination[query_num * 10: query_num * 10 + rest_doc_num]
+                this_query_context = this_query_context.view(1, rest_doc_num, -1)
+                this_hidden = self.examination_predictor.initHidden()
+                this_examination_output = self.examination_predictor.forward(this_query_context[:, :, 2],
+                                                                            this_query_context[:, :, 3],
+                                                                            this_query_context[:, :, 1], this_hidden)
+                batch_examination_output.append(this_examination_output)
             batch_examination_output = torch.cat(tuple(batch_examination_output), 1)
             examination_list_output.append(batch_examination_output)
         examination_output = torch.cat(tuple(examination_list_output), 0)

@@ -14,6 +14,7 @@ from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch import nn
 from CACMN import CACMN
+from utils import *
 import math
 
 use_cuda = torch.cuda.is_available()
@@ -372,6 +373,151 @@ class Model(object):
             perplexity = sum(perplexity_at_rank) / len(perplexity_at_rank)
             log_likelihood = log_likelihood / 10.0 / perplexity_num
         return avg_span_loss, log_likelihood, perplexity, perplexity_at_rank
+
+    def generate_synthetic_dataset(self, batch_type, dataset, file_path, file_name, synthetic_type='deterministic', shuffle_split=None, amplification=1):
+        assert batch_type in ['train', 'dev', 'test'], 'unsupported batch_type: {}'.format(batch_type)
+        assert synthetic_type in ['deterministic', 'stochastic'], 'unsupported synthetic_type: {}'.format(synthetic_type)
+        if synthetic_type == 'deterministic' and shuffle_split is None and amplification > 1:
+            # assert amplification == 1, 'amplification should be 1 if using deterministic click generation and no 10-doc shuffles'
+            # useless generative settings
+            return 
+        np.random.seed(2333)
+        torch.manual_seed(2333)
+
+        check_path(file_path)
+        data_path = os.path.join(file_path, file_name)
+        file = open(data_path, 'w')
+        self.logger.info('Generating synthetic dataset based on the {} set...'.format(batch_type))
+        self.logger.info('  - The synthetic dataset will be expended by {} times'.format(amplification))
+        self.logger.info('  - Click generative type {}'.format(synthetic_type))
+        self.logger.info('  - Shuffle split: {}'.format(shuffle_split if shuffle_split is not None else 'no shuffle on 10-doc list'))
+        
+        for amp_idx in range(amplification):
+            self.logger.info('  - Generation at amplification {}'.format(amp_idx))
+            eval_batches = dataset.gen_mini_batches(batch_type, self.args.batch_size, shuffle=False)
+
+            for b_itx, batch in enumerate(eval_batches):
+                #pprint.pprint(batch)
+                if b_itx % 5000 == 0:
+                    self.logger.info('    - Generating click sequence at step: {}.'.format(b_itx))
+
+                # get the numpy version of input data
+                knowledge_variable_numpy = np.array(batch['knowledge_qs'], dtype=np.int64)
+                interaction_variable_numpy = np.array(batch['interactions'], dtype=np.int64)
+                document_variable_numpy = np.array(batch['doc_infos'], dtype=np.int64)
+                examination_context_numpy = np.array(batch['exams'], dtype=np.int64)
+                clicks_numpy = np.array(batch['clicks'], dtype=np.int64)
+
+                # print('{}: {}\n{}\n'.format('knowledge_variable_numpy', knowledge_variable_numpy.shape, knowledge_variable_numpy))
+                # print('{}: {}\n{}\n'.format('document_variable_numpy', document_variable_numpy.shape, document_variable_numpy))
+                # print('{}: {}\n{}\n'.format('interaction_variable_numpy', interaction_variable_numpy.shape, interaction_variable_numpy))
+                # print('{}: {}\n{}\n'.format('examination_context_numpy', examination_context_numpy.shape, examination_context_numpy))
+                # print('{}: {}\n{}\n'.format('clicks_numpy', clicks_numpy.shape, clicks_numpy))
+
+                # shuffle uids and vids according to shuffle_split
+                if shuffle_split is not None:
+                    self.logger.info('    - Start shuffling uids & vids...')
+                    assert type(shuffle_split) == type([0]), 'type of shuffle_split should be a list, but got {}'.format(type(shuffle_split))
+                    assert len(shuffle_split) > 1, 'shuffle_split should have at least 2 elements but got only {}'.format(len(shuffle_split))
+                    shuffle_split.sort()
+                    assert shuffle_split[0] >= 1 and shuffle_split[-1] <= 11, 'all elements in shuffle_split should be in range of [1, 11], but got: {}'.format(shuffle_split)
+                    query_num = knowledge_variable_numpy.shape[1] // 10
+                    # add click infos to document_variable_numpy temporarily
+                    document_variable_numpy[0, :, 3] = clicks_numpy.reshape(1, -1, 1)[0, :, 0]
+                    #print('{}: {}\n{}\n'.format('document_variable_numpy', document_variable_numpy.shape, document_variable_numpy))
+                    # only shuffle document_variable_numpy first
+                    for i in range(query_num):
+                        for split_idx in range(len(shuffle_split) - 1):
+                            # NOTE: shuffle split list remain the same interface with NCM/GACMv1.0, so they need to minus one
+                            split_left = shuffle_split[split_idx] - 1
+                            split_right= shuffle_split[split_idx + 1] - 1
+                            np.random.shuffle(document_variable_numpy[0, i*10+split_left:i*10+split_right, :])
+                    # assign interaction_variable_numpy & examination_context_numpy according to shuffled document_variable_numpy
+                    interaction_variable_numpy[0, 1:, :] = document_variable_numpy[0, :-1, :]
+                    for i in range(query_num):
+                        examination_context_numpy[0, i*10+1:i*10+10, :] = document_variable_numpy[0, i*10:i*10+9, :]
+                        # remove click info and add iteration info back to document_variable_numpy
+                        document_variable_numpy[0, i*10:i*10+10, 3].fill(i + 1)
+                    # print('{}: {}\n{}\n'.format('document_variable_numpy', document_variable_numpy.shape, document_variable_numpy))
+                    # print('{}: {}\n{}\n'.format('interaction_variable_numpy', interaction_variable_numpy.shape, interaction_variable_numpy))
+                    # print('{}: {}\n{}\n'.format('examination_context_numpy', examination_context_numpy.shape, examination_context_numpy))
+                #exit(0)
+
+                # get the tensor version of input data (maybe shuffled) from the numpy version
+                knowledge_variable = Variable(torch.from_numpy(knowledge_variable_numpy))
+                interaction_variable = Variable(torch.from_numpy(interaction_variable_numpy))
+                document_variable = Variable(torch.from_numpy(document_variable_numpy))
+                examination_context = Variable(torch.from_numpy(examination_context_numpy))
+                if use_cuda:
+                    knowledge_variable, interaction_variable = knowledge_variable.cuda(), interaction_variable.cuda()
+                    document_variable, examination_context = document_variable.cuda(), examination_context.cuda()
+                # print('{}: {}\n{}\n'.format('document_variable_numpy', document_variable_numpy.shape, document_variable_numpy))
+                # print('{}: {}\n{}\n'.format('interaction_variable_numpy', interaction_variable_numpy.shape, interaction_variable_numpy))
+                # print('{}: {}\n{}\n'.format('examination_context_numpy', examination_context_numpy.shape, examination_context_numpy))
+                # print('{}: {}\n{}\n'.format('knowledge_variable', knowledge_variable.shape, knowledge_variable))
+                # print('{}: {}\n{}\n'.format('interaction_variable', interaction_variable[:, :, 1].shape, interaction_variable[:, :, 1]))
+                # print('{}: {}\n{}\n'.format('document_variable', document_variable.shape, document_variable))
+                # print('{}: {}\n{}\n'.format('examination_context', examination_context.shape, examination_context))
+                # exit(0)
+
+                # start predict the click info
+                self.model.eval()
+                click_list = []
+                doc_num = knowledge_variable.shape[1]
+                query_num = doc_num // 10
+                for idx in range(doc_num):
+                    knowledge_input = knowledge_variable[0, :idx+1, :].view(1, idx+1, 10)
+                    interaction_input = interaction_variable[0, :idx+1, :].view(1, idx+1, 4)
+                    document_input = document_variable[0, :idx+1, :].view(1, idx+1, 4)
+                    examination_input = examination_context[0, :idx+1, :].view(1, idx+1, 4)
+                    # print('{}: {}\n{}\n'.format('interaction_input', interaction_input.shape, interaction_input))
+                    # print('{}: {}\n{}\n'.format('examination_input', examination_input.shape, examination_input))
+                    relevances, exams, pred_clicks = self.model(knowledge_input, interaction_input, document_input, examination_input, dataset)
+                    if synthetic_type == 'deterministic':
+                        CLICK_ = (pred_clicks[0, -1, 0] > 0.5).type(knowledge_variable.dtype)
+                        click_list.append(CLICK_)
+                        # print('{}: {}\n{}'.format('pred_clicks', pred_clicks.shape, pred_clicks))
+                        # print('{}: {}\n{}'.format('CLICK_', CLICK_.shape, CLICK_))
+                        # print('{}: {}\n{}'.format('click_list', len(click_list), click_list))
+                        # print()
+                    elif synthetic_type == 'stochastic':
+                        random_tmp = torch.rand(pred_clicks[0, -1, 0].shape)
+                        if use_cuda:
+                            random_tmp = random_tmp.cuda()
+                        CLICK_ = (random_tmp <= pred_clicks[0, -1, 0]).type(knowledge_variable.dtype)
+                        click_list.append(CLICK_)
+                        # print('{}: {}\n{}'.format('pred_clicks', pred_clicks.shape, pred_clicks))
+                        # print('{}: {}\n{}'.format('random_tmp', random_tmp.shape, random_tmp))
+                        # print('{}: {}\n{}'.format('CLICK_', CLICK_.shape, CLICK_))
+                        # print('{}: {}\n{}'.format('click_list', len(click_list), click_list))
+                        # print()
+                    if idx < doc_num - 1:
+                        interaction_variable[0, idx+1:idx+2, 3] = CLICK_
+                        if idx % 10 != 9:
+                            examination_context[0, idx+1:idx+2, 3] = CLICK_
+                    # print('{}: {}\n{}\n'.format('relevances', relevances.shape, relevances))
+                    # print('{}: {}\n{}\n'.format('exams', exams.shape, exams))
+                    # print('{}: {}\n{}\n'.format('pred_clicks', pred_clicks.shape, pred_clicks))
+                CLICKS_ = torch.stack(click_list, dim=0).view(-1, 10).cpu().numpy().tolist()
+                UIDS = document_variable[0, :, 0].view(-1, 10).cpu().numpy().tolist()
+                VIDS = document_variable[0, :, 2].view(-1, 10).cpu().numpy().tolist()
+                # print(CLICKS_)
+                # print(UIDS)
+                # print(VIDS)
+                for i in range(query_num):
+                    qid = int(knowledge_variable[0, i*10, i])
+                    uids = UIDS[i]
+                    vids = VIDS[i]
+                    clicks = CLICKS_[i]
+                    # print(qid)
+                    # print(uids)
+                    # print(vids)
+                    # print(clicks)
+                    # print()
+                    file.write("{}\t{}\t{}\t{}\t{}\t{}\t{}\n".format(0, qid, 0, 0, str(uids), str(vids), str(clicks)))
+                # exit(0)
+        self.logger.info('Finish synthetic dataset generation...')
+        file.close()
 
     def save_model(self, model_dir, model_prefix):
         torch.save(self.model.state_dict(), os.path.join(model_dir, model_prefix+'_{}.model'.format(self.global_step)))
